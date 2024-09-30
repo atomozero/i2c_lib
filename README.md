@@ -1,23 +1,23 @@
 # I2C Driver and Library for Haiku OS
 
-This project provides an I2C driver and accompanying C++ library for Haiku OS. The driver enables interaction with I2C devices via `/dev/i2c/*` paths, and the library offers a user-friendly interface for reading and writing data over the I2C bus.
+This project provides an I2C driver and accompanying C++ library for Haiku OS. The driver enables interaction with I2C devices via `/dev/bus/i2c/*` paths, and the library offers a user-friendly interface for reading and writing data over the I2C bus.
 
 ## Features
 
 - Basic I2C communication (read/write).
 - Simple user-mode interface.
-- Example driver to register an I2C device on `/dev/i2c`.
+- Example driver to register an I2C device on `/dev/bus/i2c`.
 - Designed for ease of integration with hardware using the I2C protocol on Haiku OS.
 
 ---
 
 ## 1. I2C Driver Overview
 
-The I2C driver registers an I2C bus as a device under `/dev/i2c`. This driver allows reading and writing data over the I2C bus, which is then used by user-mode applications or other kernel modules.
+The I2C driver registers an I2C bus as a device under `/dev/bus/i2c`. This driver allows reading and writing data over the I2C bus, which is then used by user-mode applications or other kernel modules.
 
 ### Key Functions
 
-- **init_driver**: Initializes the I2C driver, registers the device under `/dev/i2c/test`.
+- **init_driver**: Initializes the I2C driver, registers the device under `/dev/bus/i2c/test`.
 - **uninit_driver**: Cleans up the driver, unregistering the device.
 - **i2c_open**: Opens a connection to the I2C bus.
 - **i2c_close**: Closes the connection.
@@ -27,7 +27,7 @@ The I2C driver registers an I2C bus as a device under `/dev/i2c`. This driver al
 
 ### Directory Structure
 
-- `/dev/i2c/*`: Path where the I2C devices are registered.
+- `/dev/bus/i2c/*`: Path where the I2C devices are registered.
 - `/boot/system/non-packaged/add-ons/kernel/drivers/bin/`: Path where the compiled I2C driver is placed.
 
 ---
@@ -102,7 +102,7 @@ Represents an I2C bus and provides methods to interact with devices on the bus.
 
 3. **Create the `/dev/i2c` directory** (if it doesn’t exist):
    ```bash
-   mkdir -p /dev/i2c
+   mkdir -p /dev/bus/i2c
    ```
 
 4. **Load the driver** by either restarting the system or by using Haiku’s tools to manually load the driver.
