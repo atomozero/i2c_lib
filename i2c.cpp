@@ -18,7 +18,7 @@ I2CBus::~I2CBus() {
 
 status_t I2CBus::init() {
     char path[20];
-    snprintf(path, sizeof(path), "/dev/i2c-%d", f_bus_number);
+    snprintf(path, sizeof(path), "/dev/bus/i2c/%d", f_bus_number);
 
     int fd = open(path, O_RDWR);
     if (fd < 0) {
