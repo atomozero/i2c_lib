@@ -1,5 +1,6 @@
 #ifndef I2C_H
 #define I2C_H
+#define I2C_SET_SLAVE 0x0703
 
 #include <OS.h>
 #include <stdint.h>
