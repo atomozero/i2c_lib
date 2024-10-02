@@ -1,35 +1,40 @@
 #ifndef I2C_H
 #define I2C_H
-#define I2C_SET_SLAVE 0x0703
 
 #include <OS.h>
 #include <stdint.h>
 
+// Definizioni delle costanti I2C
+#define I2C_SLAVE 0x0703
+
 class I2CBus {
 public:
-    // Costruttore e distruttore
     I2CBus(int bus_number);
     ~I2CBus();
 
-    // Inizializzazione e de-inizializzazione del bus I2C
     status_t init();
     status_t deinit();
 
-    // Operazioni di lettura e scrittura
     status_t write(uint8 address, const uint8* data, size_t length);
     status_t read(uint8 address, uint8* buffer, size_t length);
 
-    // Imposta la velocità del bus I2C
     status_t set_speed(uint32 speed);
 
-    // Funzioni avanzate per la gestione dei registri I2C
     status_t write_register(uint8 address, uint8 reg, uint8 data);
     status_t read_register(uint8 address, uint8 reg, uint8* data);
+
+    status_t write_registers(uint8 address, uint8 reg, const uint8* data, size_t length);
+    status_t read_registers(uint8 address, uint8 reg, uint8* data, size_t length);
 
 private:
     int f_bus_number;
     bool f_initialized;
     uint32 f_speed;
+    int f_fd;
+
+    status_t open_bus();
+    void close_bus();
+    status_t set_slave_address(uint8 address);
 };
 
 #endif  // I2C_H
