@@ -1,117 +1,217 @@
-#include <KernelExport.h>
 #include <Drivers.h>
-#include <Errors.h>
-#include <stdio.h>
+#include <KernelExport.h>
+#include <PCI.h>
 #include <string.h>
-#include <unistd.h>
-#include <module.h>
+#include <stdlib.h>
 
-#define I2C_DEVICE_PATH "i2c/my_i2c_device"
-#define I2C_SET_SLAVE 0x0703
+#define DRIVER_NAME "i2c"
+#define DEVICE_NAME "bus/i2c/0"
 
-// Funzioni Hook del driver
-status_t i2c_open(const char* name, uint32 flags, void** cookie);
-status_t i2c_close(void* cookie);
-status_t i2c_read(void* cookie, off_t pos, void* buffer, size_t* length);
-status_t i2c_write(void* cookie, off_t pos, const void* buffer, size_t* length);
-status_t i2c_ioctl(void* cookie, uint32 op, void* buffer, size_t length);
+// Vendor e Device ID per alcuni controller I2C comuni
+#define INTEL_VENDOR_ID 0x8086
+#define INTEL_LYNXPOINT_DEVICE_ID 0x9c61
+#define INTEL_SUNRISEPOINT_DEVICE_ID 0x9d61
 
-// Tabella dei "device hooks"
-static device_hooks i2c_hooks = {
-    &i2c_open,      // Open hook
-    &i2c_close,     // Close hook
-    &i2c_ioctl,     // Control hook (ioctl)
-    &i2c_read,      // Read hook
-    &i2c_write,     // Write hook
-    NULL,           // No free hook
-    NULL,           // No select hook
-    NULL            // No deselect hook
+// Vendor e Device ID per touchpad comuni nei Huawei MateBook Pro
+#define SYNAPTICS_VENDOR_ID 0x06CB
+#define ELAN_VENDOR_ID 0x04F3
+
+// Questi sono esempi e potrebbero dover essere aggiornati
+#define SYNAPTICS_DEVICE_ID 0x122E  // Esempio di ID Synaptics
+#define ELAN_DEVICE_ID 0x3022       // Esempio di ID ELAN
+
+int32 api_version = B_CUR_DRIVER_API_VERSION;
+
+struct i2c_device {
+    uint32 base_addr;
+    pci_info pci;
+    bool is_touchpad;
+    uint16 touchpad_vendor;
+    uint16 touchpad_device;
 };
 
-// Funzione di apertura del dispositivo
-status_t i2c_open(const char* name, uint32 flags, void** cookie) {
-    dprintf("i2c_driver: i2c_open() - Nome dispositivo: %s\n", name);
-    *cookie = NULL;
+static i2c_device* gDeviceList = NULL;
+static uint32 gDeviceCount = 0;
+
+static pci_module_info* gPCIModule;
+
+// Prototipi delle funzioni del driver
+status_t init_hardware(void);
+status_t init_driver(void);
+void uninit_driver(void);
+const char** publish_devices(void);
+device_hooks* find_device(const char* name);
+
+// Funzioni del dispositivo
+static status_t i2c_open(const char* name, uint32 flags, void** cookie);
+static status_t i2c_close(void* cookie);
+static status_t i2c_free(void* cookie);
+static status_t i2c_read(void* cookie, off_t position, void* buffer, size_t* numBytes);
+static status_t i2c_write(void* cookie, off_t position, const void* buffer, size_t* numBytes);
+static status_t i2c_control(void* cookie, uint32 op, void* arg, size_t len);
+
+static device_hooks gDeviceHooks = {
+    i2c_open,
+    i2c_close,
+    i2c_free,
+    i2c_control,
+    i2c_read,
+    i2c_write
+};
+
+// Funzione per rilevare i dispositivi I2C
+static status_t probe_i2c_devices() {
+    pci_info info;
+    uint32 index = 0;
+    uint32 found_devices = 0;
+
+    while (gPCIModule->get_nth_pci_info(index++, &info) == B_OK) {
+        bool is_i2c_controller = (info.vendor_id == INTEL_VENDOR_ID) &&
+                                 ((info.device_id == INTEL_LYNXPOINT_DEVICE_ID) ||
+                                  (info.device_id == INTEL_SUNRISEPOINT_DEVICE_ID));
+
+        bool is_touchpad = (info.vendor_id == SYNAPTICS_VENDOR_ID && info.device_id == SYNAPTICS_DEVICE_ID) ||
+                           (info.vendor_id == ELAN_VENDOR_ID && info.device_id == ELAN_DEVICE_ID);
+
+        if (is_i2c_controller || is_touchpad) {
+            dprintf(DRIVER_NAME ": Found %s at %02x:%02x.%x\n",
+                    is_touchpad ? "touchpad" : "I2C controller",
+                    info.bus, info.device, info.function);
+            
+            // Alloca memoria per il nuovo dispositivo
+            i2c_device* new_devices = (i2c_device*)realloc(gDeviceList, (gDeviceCount + 1) * sizeof(i2c_device));
+            if (new_devices == NULL) {
+                dprintf(DRIVER_NAME ": Failed to allocate memory for new device\n");
+                return B_NO_MEMORY;
+            }
+            
+            gDeviceList = new_devices;
+            gDeviceList[gDeviceCount].base_addr = info.u.h0.base_registers[0];
+            memcpy(&gDeviceList[gDeviceCount].pci, &info, sizeof(pci_info));
+            gDeviceList[gDeviceCount].is_touchpad = is_touchpad;
+            if (is_touchpad) {
+                gDeviceList[gDeviceCount].touchpad_vendor = info.vendor_id;
+                gDeviceList[gDeviceCount].touchpad_device = info.device_id;
+            }
+            gDeviceCount++;
+            found_devices++;
+        }
+    }
+
+    if (found_devices == 0) {
+        dprintf(DRIVER_NAME ": No compatible I2C controllers or touchpads found\n");
+        return B_ERROR;
+    }
+
     return B_OK;
 }
 
-// Funzione di chiusura del dispositivo
-status_t i2c_close(void* cookie) {
-    dprintf("i2c_driver: i2c_close()\n");
+// Implementazione delle funzioni del driver
+status_t init_hardware(void)
+{
+    dprintf(DRIVER_NAME ": init_hardware()\n");
     return B_OK;
 }
 
-// Funzione di lettura dal dispositivo
-status_t i2c_read(void* cookie, off_t pos, void* buffer, size_t* length) {
-    dprintf("i2c_driver: i2c_read() - Posizione: %ld, Lunghezza: %zu\n", pos, *length);
-    memset(buffer, 0, *length);
+status_t init_driver(void)
+{
+    dprintf(DRIVER_NAME ": init_driver()\n");
+    
+    if (get_module(B_PCI_MODULE_NAME, (module_info**)&gPCIModule) != B_OK) {
+        dprintf(DRIVER_NAME ": Failed to get PCI module\n");
+        return B_ERROR;
+    }
+
+    status_t status = probe_i2c_devices();
+    if (status != B_OK) {
+        put_module(B_PCI_MODULE_NAME);
+        return status;
+    }
+
     return B_OK;
 }
 
-// Funzione di scrittura sul dispositivo
-status_t i2c_write(void* cookie, off_t pos, const void* buffer, size_t* length) {
-    dprintf("i2c_driver: i2c_write() - Posizione: %ld, Lunghezza: %zu\n", pos, *length);
-    const uint8_t* write_buffer = (const uint8_t*)buffer;
-    for (size_t i = 0; i < *length; i++) {
-        dprintf("i2c_driver: Dato scritto %02x\n", write_buffer[i]);
+void uninit_driver(void)
+{
+    dprintf(DRIVER_NAME ": uninit_driver()\n");
+    free(gDeviceList);
+    put_module(B_PCI_MODULE_NAME);
+}
+
+const char** publish_devices(void)
+{
+    static const char* devices[2] = {
+        DEVICE_NAME,
+        NULL
+    };
+    return devices;
+}
+
+device_hooks* find_device(const char* name)
+{
+    if (!strcmp(name, DEVICE_NAME))
+        return &gDeviceHooks;
+    return NULL;
+}
+
+// Implementazione delle funzioni del dispositivo
+static status_t i2c_open(const char* name, uint32 flags, void** cookie)
+{
+    if (gDeviceCount > 0) {
+        *cookie = (void*)&gDeviceList[0];
+        return B_OK;
+    }
+    return B_ERROR;
+}
+
+static status_t i2c_close(void* cookie)
+{
+    return B_OK;
+}
+
+static status_t i2c_free(void* cookie)
+{
+    return B_OK;
+}
+
+static status_t i2c_read(void* cookie, off_t position, void* buffer, size_t* numBytes)
+{
+    i2c_device* device = (i2c_device*)cookie;
+    if (device->is_touchpad) {
+        dprintf(DRIVER_NAME ": Reading from touchpad (vendor: 0x%04x, device: 0x%04x)\n",
+                device->touchpad_vendor, device->touchpad_device);
+        // Implementa la lettura specifica per il touchpad
+    } else {
+        dprintf(DRIVER_NAME ": Reading from I2C controller\n");
+        // Implementa la lettura generica dal controller I2C
     }
     return B_OK;
 }
 
-// Funzione di gestione delle operazioni speciali (ioctl)
-status_t i2c_ioctl(void* cookie, uint32 op, void* buffer, size_t length) {
-    dprintf("i2c_driver: i2c_ioctl() - Operazione: %u\n", op);
-    switch (op) {
-        case I2C_SET_SLAVE:
-            dprintf("i2c_driver: I2C_SET_SLAVE chiamato\n");
-            break;
-        default:
-            dprintf("i2c_driver: Operazione non supportata\n");
-            return B_BAD_VALUE;
+static status_t i2c_write(void* cookie, off_t position, const void* buffer, size_t* numBytes)
+{
+    i2c_device* device = (i2c_device*)cookie;
+    if (device->is_touchpad) {
+        dprintf(DRIVER_NAME ": Writing to touchpad (vendor: 0x%04x, device: 0x%04x)\n",
+                device->touchpad_vendor, device->touchpad_device);
+        // Implementa la scrittura specifica per il touchpad
+    } else {
+        dprintf(DRIVER_NAME ": Writing to I2C controller\n");
+        // Implementa la scrittura generica al controller I2C
     }
     return B_OK;
 }
 
-// Funzione di inizializzazione dell'hardware
-status_t init_hardware() {
-    dprintf("i2c_driver: init_hardware()\n");
-    return B_OK;
-}
-
-// Funzione di inizializzazione del driver
-status_t init_driver() {
-    dprintf("i2c_driver: init_driver()\n");
-    // Non utilizziamo publish_devices in questo caso
-    return B_OK;
-}
-
-// Funzione di disinstallazione del driver
-void uninit_driver() {
-    dprintf("i2c_driver: uninit_driver()\n");
-}
-
-// Funzione di gestione dei comandi per il modulo del kernel
-status_t i2c_std_ops(int32 op, ...) {
-    switch (op) {
-        case B_MODULE_INIT:
-            return init_driver();
-        case B_MODULE_UNINIT:
-            uninit_driver();
-            return B_OK;
-        default:
-            return B_BAD_VALUE;
+static status_t i2c_control(void* cookie, uint32 op, void* arg, size_t len)
+{
+    i2c_device* device = (i2c_device*)cookie;
+    if (device->is_touchpad) {
+        dprintf(DRIVER_NAME ": Control operation on touchpad (vendor: 0x%04x, device: 0x%04x)\n",
+                device->touchpad_vendor, device->touchpad_device);
+        // Implementa le operazioni di controllo specifiche per il touchpad
+    } else {
+        dprintf(DRIVER_NAME ": Control operation on I2C controller\n");
+        // Implementa le operazioni di controllo generiche per il controller I2C
     }
+    return B_OK;
 }
-
-// Definizione del modulo driver
-module_info i2c_driver_module = {
-    "drivers/i2c/my_i2c_device",
-    0,
-    i2c_std_ops
-};
-
-// Esportazione del modulo
-_EXPORT module_info* modules[] = {
-    &i2c_driver_module,
-    NULL
-};
