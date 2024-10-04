@@ -23,8 +23,8 @@ This driver is currently in development and is not yet functional. It is being c
 
 1. Clone this repository:
    ```
-   git clone https://github.com/atomozero/haiku-i2c-touchpad-driver.git
-   cd haiku-i2c-touchpad-driver
+   git clone https://github.com/atomozero/i2c_lib.git
+   cd i2c-lib
    ```
 
 2. Build the driver:
@@ -57,9 +57,3 @@ This project is licensed under the [MIT License](LICENSE).
 
 - The Haiku development community for their documentation and support
 - [Any other acknowledgements or credits]
-
-## Contact
-
-[Your Name] - [Your Email or GitHub profile]
-
-Project Link: [https://github.com/atomozero/haiku-i2c-touchpad-driver](https://github.com/atomozero/haiku-i2c-touchpad-driver)
