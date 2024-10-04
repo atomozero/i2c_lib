@@ -1,0 +1,10 @@
+i2c_touchpad_driver/
+├── i2c_driver.cpp
+├── i2c_driver.h
+├── i2c_controller.cpp
+├── i2c_controller.h
+├── i2c_touchpad.cpp
+├── i2c_touchpad.h
+├── i2c_util.h
+├── Makefile
+└── (opzionalmente) i2c_device.cpp e i2c_device.h
